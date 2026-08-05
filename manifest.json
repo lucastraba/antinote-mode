@@ -3,7 +3,7 @@
   "name": "Antinote Mode",
   "version": "0.1.0",
   "minAppVersion": "1.5.0",
-  "description": "Turn Obsidian into an Antinote-style translucent scratchpad — glass theme, hidden chrome, hover traffic lights, scroll-only scrollbars — and back with one command. Unofficial, inspired by Antinote.",
+  "description": "Turn Obsidian into an Antinote-style translucent scratchpad and back with one command: glass theme, hidden chrome, hover traffic lights, scroll-only scrollbars. Unofficial, inspired by Antinote.",
   "author": "Lucas Traba",
   "authorUrl": "https://github.com/lucastraba",
   "isDesktopOnly": true
