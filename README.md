@@ -16,6 +16,16 @@ One master command (`Toggle Antinote mode`) flips these modules, each individual
 
 Toggling off restores stock Obsidian: every style is gated on body classes, and nothing is patched or persisted outside plugin settings.
 
+## Sharing a vault with a regular theme
+
+You don't need a separate vault for the glass look. With **Replace the vault theme** on (the default), turning the mode on unloads the vault's theme and CSS snippets and turns on translucency, all in memory. Turning it off loads them back, so the vault keeps its usual theme in `appearance.json`. Other options:
+
+- **Scratch note:** a vault path to open in a new tab when the mode turns on. Sidebars collapse, and the layout from before is restored when it turns off.
+- **Font size while on:** a separate text size for the glass mode.
+- **Run when turned on / off:** shell commands, with `{windowId}` replaced by the macOS window number. With AeroSpace, `aerospace layout floating --window-id {windowId}` and `aerospace layout tiling --window-id {windowId}` give you a floating pad and a tiled window. The pad's size is remembered between switches.
+
+`Turn Antinote mode on` and `Turn Antinote mode off` are idempotent, for scripts and global hotkeys that can't see the current state, e.g. `obsidian command id=antinote-mode:enable` with the Obsidian CLI.
+
 ## What it deliberately does not do
 
 Summon/dismiss. Antinote's global-hotkey show/hide depends on your environment: window manager, hotkey daemons, other apps competing for the key. Bind your own: a Raycast "toggle application" hotkey on Obsidian works well. If you run AeroSpace, set `automatically-unhide-macos-hidden-apps = false` or AeroSpace will undo every hide.

@@ -24,6 +24,24 @@ const DEFAULT_SETTINGS = {
   modCheckboxes: false,
   material: 'hud',
   tint: 0.15,
+  // Sharing a vault with a regular theme: while the mode is on, unload the
+  // vault's theme and CSS snippets, turn on translucency and use this font
+  // size. Nothing is written to the vault's appearance config, so turning
+  // the mode off (or a restart with it off) brings the usual look back.
+  standalone: true,
+  fontSize: 0,
+  // Note to open in a fresh tab when the mode turns on; empty opens nothing.
+  scratchNote: '',
+  // Workspace layout from before the mode turned on, restored when it turns
+  // off. Persisted so a restart in Antinote mode can still go back.
+  savedLayout: null,
+  // Shell commands run when the mode turns on / off, e.g. to float the window
+  // in a tiling window manager. {windowId} is the macOS window number, which
+  // is also AeroSpace's window id.
+  onEnableCommand: '',
+  onDisableCommand: '',
+  // Window bounds while on, remembered across switches (macOS).
+  glassBounds: null,
 };
 
 // Every visual module is a body class; styles.css gates all its rules on
@@ -52,6 +70,20 @@ module.exports = class AntinoteModePlugin extends Plugin {
       id: 'toggle',
       name: 'Toggle Antinote mode',
       callback: () => this.setEnabled(!this.settings.enabled),
+    });
+
+    // Idempotent variants for scripts and global hotkeys (`obsidian command
+    // id=antinote-mode:enable`), which can't see the current state.
+    this.addCommand({
+      id: 'enable',
+      name: 'Turn Antinote mode on',
+      callback: () => this.setEnabled(true),
+    });
+
+    this.addCommand({
+      id: 'disable',
+      name: 'Turn Antinote mode off',
+      callback: () => this.setEnabled(false),
     });
 
     this.addCommand({
@@ -122,7 +154,9 @@ module.exports = class AntinoteModePlugin extends Plugin {
     );
 
     this.app.workspace.onLayoutReady(() => {
-      if (this.settings.enabled) this.apply();
+      if (!this.settings.enabled) return;
+      this.apply();
+      this.runHook(this.settings.onEnableCommand, electronWindowFor());
     });
   }
 
@@ -130,12 +164,52 @@ module.exports = class AntinoteModePlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
-  setEnabled(on) {
+  async setEnabled(on) {
+    if (this.settings.enabled === on) return;
     this.settings.enabled = on;
-    this.saveSettings();
-    if (on) this.apply();
-    else this.restore();
+    const w = electronWindowFor();
+    if (on) {
+      this.settings.savedLayout = this.app.workspace.getLayout();
+      await this.saveSettings();
+      this.apply();
+      this.runHook(this.settings.onEnableCommand, w);
+      if (w && this.settings.glassBounds) w.setBounds(this.settings.glassBounds);
+      await this.openScratchNote();
+    } else {
+      if (w && this.settings.onDisableCommand) this.settings.glassBounds = w.getBounds();
+      this.restore();
+      this.runHook(this.settings.onDisableCommand, w);
+      const layout = this.settings.savedLayout;
+      this.settings.savedLayout = null;
+      await this.saveSettings();
+      if (layout) await this.app.workspace.changeLayout(layout);
+    }
     new Notice(on ? 'Antinote mode on' : 'Antinote mode off');
+  }
+
+  runHook(command, w) {
+    if (!command || !Platform.isDesktopApp) return;
+    const id = /^window:(\d+):/.exec(w?.getMediaSourceId?.() || '')?.[1] || '';
+    try {
+      require('child_process').execFileSync('/bin/sh', ['-c', command.replaceAll('{windowId}', id)], {
+        timeout: 3000,
+      });
+    } catch (e) {
+      console.error('antinote-mode: hook failed', command, e);
+    }
+  }
+
+  async openScratchNote() {
+    const ws = this.app.workspace;
+    ws.leftSplit?.collapse();
+    ws.rightSplit?.collapse();
+    const file = this.settings.scratchNote
+      ? this.app.vault.getFileByPath(this.settings.scratchNote)
+      : null;
+    if (!file) return;
+    const leaf = ws.getLeaf('tab');
+    await leaf.openFile(file);
+    ws.setActiveLeaf(leaf, { focus: true });
   }
 
   apply() {
@@ -146,8 +220,10 @@ module.exports = class AntinoteModePlugin extends Plugin {
     }
     body.style.setProperty('--an-tint', String(this.settings.tint));
 
+    if (this.settings.standalone) this.unloadVaultLook();
+
     if (this.settings.modTheme && Platform.isMacOS) {
-      if (!this.app.vault.getConfig('translucency')) {
+      if (!body.classList.contains('is-translucent')) {
         new Notice(
           'Antinote Mode: enable Settings → Appearance → "Translucent window" for the glass effect.',
           8000
@@ -163,6 +239,8 @@ module.exports = class AntinoteModePlugin extends Plugin {
     for (const cls of Object.values(MODULE_CLASSES)) body.classList.remove(cls);
     body.style.removeProperty('--an-tint');
 
+    if (this.settings.standalone) this.reloadVaultLook();
+
     const w = electronWindowFor();
     if (!w) return;
     if (Platform.isMacOS) {
@@ -175,6 +253,34 @@ module.exports = class AntinoteModePlugin extends Plugin {
       }
       this.setButtons(true);
     }
+  }
+
+  // customCss is Obsidian's internal theme manager. Setting its fields and
+  // asking it to reload, instead of calling setTheme()/setTranslucency(),
+  // keeps the change out of appearance.json.
+  unloadVaultLook() {
+    const css = this.app.customCss;
+    if (!css) return;
+    css.theme = '';
+    css.requestLoadTheme();
+    css.enabledSnippets = new Set();
+    css.requestLoadSnippets();
+    if (Platform.isMacOS && !document.body.classList.contains('is-translucent'))
+      css.enableTranslucency();
+    if (this.settings.fontSize)
+      document.body.style.setProperty('--font-text-size', `${this.settings.fontSize}px`);
+  }
+
+  reloadVaultLook() {
+    const css = this.app.customCss;
+    if (!css) return;
+    const config = (key) => this.app.vault.getConfig(key);
+    css.reloadTheme();
+    css.enabledSnippets = new Set(config('enabledCssSnippets') || []);
+    css.requestLoadSnippets();
+    if (Platform.isMacOS && !config('translucency')) css.disableTranslucency();
+    if (this.settings.fontSize)
+      document.body.style.setProperty('--font-text-size', `${config('baseFontSize') || 16}px`);
   }
 
   applyVibrancy(w) {
@@ -201,7 +307,7 @@ module.exports = class AntinoteModePlugin extends Plugin {
 
   onunload() {
     window.clearTimeout(this.scrollTimer);
-    this.restore();
+    if (this.settings.enabled) this.restore();
   }
 };
 
@@ -221,6 +327,49 @@ class AntinoteModeSettingTab extends PluginSettingTab {
       .setDesc('Master switch. Also available as a command for hotkeys.')
       .addToggle((t) =>
         t.setValue(p.settings.enabled).onChange((v) => p.setEnabled(v))
+      );
+
+    new Setting(containerEl)
+      .setName('Scratch note')
+      .setDesc('Vault path of a note to open in a new tab when the mode turns on. Leave empty to keep the current note.')
+      .addText((t) =>
+        t.setValue(p.settings.scratchNote).onChange(async (v) => {
+          p.settings.scratchNote = v.trim();
+          await p.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName('Replace the vault theme')
+      .setDesc('While on, unload the vault theme and CSS snippets and turn on translucency, without changing appearance settings.')
+      .addToggle((t) =>
+        t.setValue(p.settings.standalone).onChange(async (v) => {
+          p.settings.standalone = v;
+          await p.saveSettings();
+        })
+      );
+
+    const hook = (key, name) =>
+      new Setting(containerEl)
+        .setName(name)
+        .setDesc('Shell command. {windowId} is the macOS window number (AeroSpace window id). Leave empty for none.')
+        .addText((t) =>
+          t.setValue(p.settings[key]).onChange(async (v) => {
+            p.settings[key] = v;
+            await p.saveSettings();
+          })
+        );
+    hook('onEnableCommand', 'Run when turned on');
+    hook('onDisableCommand', 'Run when turned off');
+
+    new Setting(containerEl)
+      .setName('Font size while on')
+      .setDesc('In pixels. 0 keeps the vault font size.')
+      .addText((t) =>
+        t.setValue(String(p.settings.fontSize)).onChange(async (v) => {
+          p.settings.fontSize = Number(v) || 0;
+          await p.saveSettings();
+        })
       );
 
     const module = (key, name, desc) =>

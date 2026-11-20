@@ -13,6 +13,8 @@
 
 /* ---- Glass theme ------------------------------------------- */
 body.antinote-mode.an-theme {
+  /* Full-width text like Antinote, even in vaults with readable line length on. */
+  --file-line-width: 100%;
   --an-background:        #141414;
   --an-background-fade:   #330404;
   --an-type-main:         #DCDCDC;
@@ -154,7 +156,7 @@ body.antinote-mode.an-theme .markdown-source-view.mod-cm6 .HyperMD-task-line[dat
   }
 
 /* ---- Hide chrome ------------------------------------------- */
-body.antinote-mode.an-chrome .workspace-ribbon,body.antinote-mode.an-chrome .status-bar,body.antinote-mode.an-chrome .workspace-tab-header-container,body.antinote-mode.an-chrome .view-header {
+body.antinote-mode.an-chrome .workspace-ribbon,body.antinote-mode.an-chrome .status-bar,body.antinote-mode.an-chrome .workspace-tab-header-container,body.antinote-mode.an-chrome .view-header,body.antinote-mode.an-chrome .metadata-container {
     display: none !important;
   }
 body.antinote-mode.an-chrome .workspace-tabs .workspace-tab-container {
