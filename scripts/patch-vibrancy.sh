@@ -19,8 +19,10 @@ ASAR=$(ls -t "$APPDIR"/obsidian-*.asar 2>/dev/null | head -1)
 [ -n "$ASAR" ] || { echo "No obsidian-*.asar found in $APPDIR" >&2; exit 1; }
 echo "Target: $ASAR"
 
-NEEDLE='backgroundColor:"#00000000",trafficLightPosition:'
-PATCHED='backgroundColor:"#00000000",visualEffectState:"active",trafficLightPosition:'
+# The main window's options. 1.15.0 has backgroundColor:"#00000000"; 1.15.1
+# made it backgroundColor:F||"#00000000" with a minified variable name that
+# can change on any release, so match it loosely.
+PATTERN='(backgroundColor:(?:[A-Za-z_$][\w$]*\|\|)?"#00000000",)(trafficLightPosition:)'
 
 if grep -q 'visualEffectState:"active"' "$ASAR"; then
   echo "Already patched."
@@ -31,13 +33,14 @@ else
   cp "$ASAR" "$ASAR.bak"
   echo "Backup: $ASAR.bak"
   npx --yes @electron/asar extract "$ASAR" "$TMP/app"
-  python3 - "$TMP/app/main.js" "$NEEDLE" "$PATCHED" <<'PY'
-import sys
-path, needle, patched = sys.argv[1:4]
+  python3 - "$TMP/app/main.js" "$PATTERN" <<'PY'
+import re, sys
+path, pattern = sys.argv[1:3]
 src = open(path).read()
-if needle not in src:
-    sys.exit("Pattern not found — Obsidian changed; patch script needs updating.")
-open(path, "w").write(src.replace(needle, patched, 1))
+out, n = re.subn(pattern, r'\1visualEffectState:"active",\2', src, count=1)
+if n != 1:
+    sys.exit("Pattern not found: Obsidian changed; patch script needs updating.")
+open(path, "w").write(out)
 PY
   npx --yes @electron/asar pack "$TMP/app" "$ASAR"
   echo "Patched."
