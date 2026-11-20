@@ -175,6 +175,7 @@ module.exports = class AntinoteModePlugin extends Plugin {
       this.runHook(this.settings.onEnableCommand, w);
       if (w && this.settings.glassBounds) w.setBounds(this.settings.glassBounds);
       await this.openScratchNote();
+      this.redrawVibrancy(w);
     } else {
       if (w && this.settings.onDisableCommand) this.settings.glassBounds = w.getBounds();
       this.restore();
@@ -291,6 +292,23 @@ module.exports = class AntinoteModePlugin extends Plugin {
     } catch (e) {
       console.error('antinote-mode: setVibrancy failed', e);
     }
+  }
+
+  // A vibrancy view added to a window that is already on screen isn't drawn
+  // until macOS redisplays the window: the glass stays clear until you click
+  // or move it. A 1px resize and back forces that redisplay.
+  redrawVibrancy(w) {
+    if (!w || !Platform.isMacOS || !this.settings.modTheme) return;
+    setTimeout(() => {
+      try {
+        this.applyVibrancy(w);
+        const b = w.getBounds();
+        w.setBounds({ ...b, width: b.width + 1 });
+        setTimeout(() => w.setBounds(b), 50);
+      } catch (e) {
+        console.error('antinote-mode: vibrancy redraw failed', e);
+      }
+    }, 150);
   }
 
   setButtons(visible) {
